@@ -1,0 +1,34 @@
+program -> linelist $$ 
+linelist -> line linelist | epsilon 
+line ->  label stmt linetail 
+label -> id: | epsilon 
+linetail -> ;stmt+ | epsilon 
+stmt -> id = expr 
+	| if (boolean) stmt 
+	| while (boolean) linelist endwhile
+	| read id
+	| write expr
+	| goto id
+	| gosub id
+	| return
+	| break
+	| end
+boolean -> true | false | expr bool-op expr 
+bool-op -> < | > | >= | <= | <> | =
+expr -> id etail | num etail | (expr) 
+etail -> + expr | - expr | * expr | / expr | epsilon
+id -> [a-zA-Z][a-zA-Z0-9]*
+num -> numsign digit digit*
+numsign -> + | - | epsilon 
+digit -> [0-9] 
+
+The regular-expression notation sometimes throws people off. An id is an alphabetic character followed by 0 or more alphanumeric characters. There is no maximum length for an id. 
+
+A reserved word (if, while, goto, gosub, etc) may not be used as a statement label. 
+gotohere: if (x > 5) y = y+1
+is valid; 
+goto: if (x > 5) y = y+1
+is a syntax error. 
+This will require an exception rule to be built into the parser--there's no easy way to express that in an LL(1) grammar. (
+
+Note where colons and semicolons appear...and where they do not. 
