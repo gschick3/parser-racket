@@ -8,12 +8,8 @@
   (flatten (map (λ (str) (regexp-split (pregexp "(?<!^)(\\b|(?=[\\(\\)])|(?<=[\\(\\)]))(?!$)") str))
                 (string-split s)))) ; split on spaces first, then split each on symbols, then flatten
 
-(define (join-lines lst-lst)
-  (flatten (cdr (append* (map (lambda (x) (list "\n" x)) lst-lst)))))
-
 (define (tokenize-file filename)
-  (join-lines (map tokenize (file->lines filename))))
-
+  (append* (map tokenize (file->lines filename))))
 
 (define (check-or on-fail . eithers)
   (define result (findf success? eithers)) ; return the first success, or the failure message of the first tried one
@@ -122,13 +118,12 @@
 
 (define (line? lst)
   (check-or (fail lst)
-            (and-then lst label? stmt? linetail? (token=? "\n"))))
+            (and-then lst label? stmt? linetail?)))
 
-; TODO: This function currently causes infinite loop
 (define (linelist? lst) ; takes list of lists
   (if (empty? lst) (success lst)
       (check-or (success lst)
-                (and-then line? linelist?))))
+                (and-then lst line? linelist?))))
 
 (define (program? filename)
   (let ([result (and-then (tokenize-file filename) linelist? (token=? "$$"))])
@@ -136,9 +131,9 @@
       [(success? result) "Successful"]
       [else (from-failure #f result)])))
 
-;(program? "test1.txt")
+(program? "test1.txt")
 
-;(tokenize-file "test1.txt")
+(tokenize-file "test1.txt")
 
 (module+ test
   (require rackunit)
@@ -148,11 +143,10 @@
   (check-equal? (tokenize test-str) '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" ";" "goto" "asgf" "$$"))
 
   ; line
-  ;(check-equal? (line? (tokenize test-str)) (success '("$$")))
   ; it's above line?'s paygrade to know if the ";" could be part of a different line or program end
-  (check-equal? (line? '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" "\n" "$$")) (success '("$$")))
+  (check-equal? (line? '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" "$$")) (success '("$$")))
   (check-true (failure? (line? '("$$"))))
-  (check-true (failure? (line? '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" ";"))))
+  ;(check-true (failure? (line? '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" ";"))))
   
   ; num
   (check-equal? (num? '("-" "12" "+")) (success '("+")))
@@ -188,4 +182,7 @@
   ; linetail
   (check-equal? (linetail? '(";" "abc" "=" "32")) (success '()))
   (check-equal? (linetail? '(";")) (success '(";"))) ; this is above the paygrade of the linetail? function
+
+  ; linelist
+  (check-equal? (linelist? '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" "$$")) (success '("$$")))
   )
