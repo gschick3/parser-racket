@@ -15,7 +15,22 @@
   (define result (findf success? eithers)) ; return the first success, or the failure message of the first tried one
   (if result result on-fail))
 
+; Applies funcs in-order to lst until one succeeds or all fail
+(define (or-then lst on-fail . funcs)
+  (define (iter f)
+    (if (empty? f)
+        on-fail
+        (let ([result ((first f) lst)])
+          (if (success? result)
+              result
+              (apply or-then lst on-fail (rest f))))))
+  (iter funcs))
+
 ; Applies funcs in-order to lst until all succeed or one fails
+(define (and-then-func . funcs)
+  (lambda (lst)
+    (apply and-then lst funcs)))
+
 (define (and-then lst . funcs)
   (if (empty? funcs)
       (success lst)
@@ -33,7 +48,7 @@
   (success (rest lst)))
 
 (define (fail lst)
-  (failure (format "Unexpected token: ~a" (if (empty? lst) '() (first lst)))))
+  (failure (format "Unexpected token: '~a'" (if (empty? lst) '() (first lst)))))
 
 ; Terminals
 
@@ -62,7 +77,7 @@
   (cond
     [(empty? lst) (fail lst)]
     [(and (not (member (first lst) reserved)) ; id cannot be reserved keyword
-      (regexp-match-exact? #rx"[a-zA-Z][a-zA-Z0-9]*" (first lst))) (pass-next lst)]
+          (regexp-match-exact? #rx"[a-zA-Z][a-zA-Z0-9]*" (first lst))) (pass-next lst)]
     [else (fail lst)]))
   
 (define (bool-op? lst)
@@ -82,10 +97,10 @@
       (success lst))) ; it can be empty, so we assume a success if it isn't there. Just don't remove the next token
 
 (define (expr? lst)
-  (check-or (fail lst) ; default to failed
-            (and-then lst id? etail?)
-            (and-then lst num? etail?)
-            (and-then lst (token=? "(") expr? (token=? ")"))))
+  (or-then lst (fail lst) ; default to failed
+           (and-then-func id? etail?)
+           (and-then-func num? etail?)
+           (and-then-func (token=? "(") expr? (token=? ")"))))
 
 (define (boolean? lst)
   (if (and (cons? lst) (member (first lst) '("true" "false")))
@@ -93,47 +108,47 @@
       (and-then lst expr? bool-op? expr?))) ; otherwise, evaluate on (expr? (bool-op? (expr? lst)))
 
 (define (stmt? lst)
-  (check-or (fail lst)
-            (and-then lst id? (token=? "=") expr?)
-            (and-then lst (token=? "if") (token=? "(") boolean? (token=? ")") stmt?)
-            (and-then lst (token=? "while") (token=? "(") boolean?
-                      (token=? ")") linelist? (token=? "endwhile"))
-            (and-then lst (token=? "read") id?)
-            (and-then lst (token=? "write") expr?)
-            (and-then lst (token=? "goto") id?)
-            (and-then lst (token=? "gosub") id?)
-            ((token=? "return") lst)
-            ((token=? "break") lst)
-            ((token=? "end") lst)))
+  (or-then lst (fail lst)
+           (and-then-func id? (token=? "=") expr?)
+           (and-then-func (token=? "if") (token=? "(") boolean? (token=? ")") stmt?)
+           (and-then-func (token=? "while") (token=? "(") boolean?
+                          (token=? ")") linelist? (token=? "endwhile"))
+           (and-then-func (token=? "read") id?)
+           (and-then-func (token=? "write") expr?)
+           (and-then-func (token=? "goto") id?)
+           (and-then-func (token=? "gosub") id?)
+           (token=? "return")
+           (token=? "break")
+           (token=? "end")))
 
 (define (linetail? lst)
   (if (empty? lst)
       (success lst)
-      (check-or (success lst) ; linelist can be empty, but it should be the last thing. If there's anything past the linetail, this is a problem
-                (and-then lst (token=? ";") stmt? linetail?))))
+      (or-then lst (success lst) ; linelist can be empty
+               (and-then-func (token=? ";") stmt? linetail?))))
 
 (define (label? lst)
-  (check-or (success lst) ; label can be empty, so default to success
-            (and-then lst id? (token=? ":"))))
+  (or-then lst (success lst) ; label can be empty, so default to success
+           (and-then-func id? (token=? ":"))))
 
 (define (line? lst)
-  (check-or (fail lst)
-            (and-then lst label? stmt? linetail?)))
+  (or-then lst (fail lst)
+           (and-then-func label? stmt? linetail?)))
 
 (define (linelist? lst) ; takes list of lists
   (if (empty? lst) (success lst)
-      (check-or (success lst)
-                (and-then lst line? linelist?))))
+      (or-then lst (success lst)
+               (and-then-func line? linelist?))))
 
 (define (program? filename)
-  (let ([result (and-then (tokenize-file filename) linelist? (token=? "$$"))])
+  (let ([result ((and-then-func linelist? (token=? "$$")) (tokenize-file filename))])
     (cond
       [(success? result) "Successful"]
       [else (from-failure #f result)])))
 
 (program? "test1.txt")
 
-(tokenize-file "test1.txt")
+;(tokenize-file "test1.txt")
 
 (module+ test
   (require rackunit)
