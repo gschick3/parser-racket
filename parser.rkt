@@ -11,10 +11,6 @@
 (define (tokenize-file filename)
   (append* (map tokenize (file->lines filename))))
 
-(define (check-or on-fail . eithers)
-  (define result (findf success? eithers)) ; return the first success, or the failure message of the first tried one
-  (if result result on-fail))
-
 ; Applies funcs in-order to lst until one succeeds or all fail
 (define (or-then lst on-fail . funcs)
   (define (iter f)
@@ -124,7 +120,7 @@
 (define (linetail? lst)
   (if (empty? lst)
       (success lst)
-      (or-then lst (success lst) ; linelist can be empty
+      (or-then lst (success lst) ; linetail can be empty
                (and-then-func (token=? ";") stmt? linetail?))))
 
 (define (label? lst)
@@ -132,8 +128,7 @@
            (and-then-func id? (token=? ":"))))
 
 (define (line? lst)
-  (or-then lst (fail lst)
-           (and-then-func label? stmt? linetail?)))
+  (and-then lst label? stmt? linetail?)) ; return whatever failure or success returns from these funcs
 
 (define (linelist? lst) ; takes list of lists
   (if (empty? lst) (success lst)
