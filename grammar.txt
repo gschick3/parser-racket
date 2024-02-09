@@ -29,6 +29,6 @@ gotohere: if (x > 5) y = y+1
 is valid; 
 goto: if (x > 5) y = y+1
 is a syntax error. 
-This will require an exception rule to be built into the parser--there's no easy way to express that in an LL(1) grammar. (
+This will require an exception rule to be built into the parser--there's no easy way to express that in an LL(1) grammar.
 
 Note where colons and semicolons appear...and where they do not. 
