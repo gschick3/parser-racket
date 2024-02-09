@@ -33,11 +33,7 @@
       (let ([result ((first funcs) lst)])
         (if (failure? result)
             result
-            (apply and-then (get-success result) (rest funcs))))))
-
-; Make the success getter easier to read. Assumes failure not possible
-(define (get-success x)
-  (from-success #f x))
+            (apply and-then (from-success #f result) (rest funcs))))))
 
 ; Mark as success and pass rest of list
 (define (pass-next lst)
@@ -141,10 +137,6 @@
       [(success? result) "Successful"]
       [else (from-failure #f result)])))
 
-(program? "test1.txt")
-
-;(tokenize-file "test1.txt")
-
 (module+ test
   (require rackunit)
 
@@ -156,7 +148,6 @@
   ; it's above line?'s paygrade to know if the ";" could be part of a different line or program end
   (check-equal? (line? '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" "$$")) (success '("$$")))
   (check-true (failure? (line? '("$$"))))
-  ;(check-true (failure? (line? '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" ";"))))
   
   ; num
   (check-equal? (num? '("-" "12" "+")) (success '("+")))
