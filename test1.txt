@@ -1,3 +1,4 @@
 goto asdf
-asdf: write 10
+bub: write dog; write cat
+if (cat > dog) cat = cat + 1
 $$
