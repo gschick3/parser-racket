@@ -1,6 +1,0 @@
-goto asdf bub:
-write dog; write cat
-while (cat > dog)
-cat = cat + 1
-endwhile
-$$

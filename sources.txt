@@ -1,5 +1,0 @@
-ChatGPT
-* How do I write a function in racket that takes a variable number of arguments?
-
-regex101.com
-* Used for testing regex statements

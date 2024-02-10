@@ -1,18 +1,19 @@
 #lang racket
 (require data/either) ; requires functional-lib package
 
-; TODO: Improve code tracing ability; currently only reports on first token of line and uses generic "Unexpected token" error message
+; TODO: Improve code tracing ability with line numbers
 
 ; take one line of input as string and break into tokens
 (define (tokenize s)
   (flatten (map (λ (str) (regexp-split (pregexp "(?<!^)(\\b|(?=[\\(\\)])|(?<=[\\(\\)]))(?!$)") str))
                 (string-split s)))) ; split on spaces first, then split each on symbols, then flatten
 
+; Take filename, read lines and tokenize, then join all lines together
 (define (tokenize-file filename)
   (append* (map tokenize (file->lines filename))))
 
 ; Applies funcs in-order to lst until one succeeds or all fail
-(define (or-then lst on-fail . funcs)
+(define (or-then lst on-fail . funcs) ; take list, return value on fail, and any number of functions
   (define (iter f)
     (if (empty? f)
         on-fail
@@ -23,10 +24,6 @@
   (iter funcs))
 
 ; Applies funcs in-order to lst until all succeed or one fails
-(define (and-then-func . funcs)
-  (lambda (lst)
-    (apply and-then lst funcs)))
-
 (define (and-then lst . funcs)
   (if (empty? funcs)
       (success lst)
@@ -35,12 +32,25 @@
             result
             (apply and-then (from-success #f result) (rest funcs))))))
 
-; Mark as success and pass rest of list
+; Return and-then function for list of functions (useful to combine with or-then)
+(define (and-then-func . funcs)
+  (lambda (lst)
+    (apply and-then lst funcs)))
+
+; Mark as success and return remainder of list
 (define (pass-next lst)
   (success (rest lst)))
 
-(define (fail lst)
-  (failure (format "Unexpected token: '~a'" (if (empty? lst) '() (first lst)))))
+; Used for when specific token is unrecognized
+(define (fail-token type lst)
+  (failure (format "Unexpected ~a: '~a'" type (if (empty? lst) '() (first lst)))))
+
+; Used for when longer statement is unrecognized
+(define (fail-statement lst)
+  (failure (format "Unexpected phrase: '~a'"
+                   (cond [(empty? lst) '()]
+                         [(= (length lst) 1) (first lst)]
+                         [else (string-join (take lst 2))]))))
 
 ; Terminals
 
@@ -48,15 +58,15 @@
 (define (token=? s) ; call like ((token=? ";") lst)
   (lambda (lst)
     (cond
-      [(empty? lst) (fail lst)]
+      [(empty? lst) (fail-token "token" lst)]
       [(equal? (first lst) s) (pass-next lst)]
-      [else (fail lst)])))
+      [else (fail-token "token" lst)])))
 
 (define (digits? lst)
   (cond
-    [(empty? lst) (fail lst)]
+    [(empty? lst) (fail-token "digit" lst)]
     [(regexp-match-exact? #rx"[0-9]+" (first lst)) (pass-next lst)]
-    [else (fail lst)]))
+    [else (fail-token "digit" lst)]))
 
 (define (numsign? lst)
   (cond
@@ -67,16 +77,16 @@
 (define (id? lst)
   (define reserved '("if" "while" "read" "write" "goto" "gosub" "return" "break" "end"))
   (cond
-    [(empty? lst) (fail lst)]
+    [(empty? lst) (fail-token "id" lst)]
     [(and (not (member (first lst) reserved)) ; id cannot be reserved keyword
           (regexp-match-exact? #rx"[a-zA-Z][a-zA-Z0-9]*" (first lst))) (pass-next lst)]
-    [else (fail lst)]))
+    [else (fail-token "id" lst)]))
   
 (define (bool-op? lst)
   (cond
-    [(empty? lst) (fail lst)]
+    [(empty? lst) (fail-token "boolean operator" lst)]
     [(member (first lst) '("<" ">" "<=" ">=" "=" "<>")) (pass-next lst)]
-    [else (fail lst)]))
+    [else (fail-token "boolean operator" lst)]))
 
 ; Non-terminals
 
@@ -89,7 +99,7 @@
       (success lst))) ; it can be empty, so we assume a success if it isn't there. Just don't remove the next token
 
 (define (expr? lst)
-  (or-then lst (fail lst) ; default to failed
+  (or-then lst (fail-statement lst)
            (and-then-func id? etail?)
            (and-then-func num? etail?)
            (and-then-func (token=? "(") expr? (token=? ")"))))
@@ -100,7 +110,7 @@
       (and-then lst expr? bool-op? expr?))) ; otherwise, evaluate on (expr? (bool-op? (expr? lst)))
 
 (define (stmt? lst)
-  (or-then lst (fail lst)
+  (or-then lst (fail-statement lst)
            (and-then-func id? (token=? "=") expr?)
            (and-then-func (token=? "if") (token=? "(") boolean? (token=? ")") stmt?)
            (and-then-func (token=? "while") (token=? "(") boolean?
@@ -131,12 +141,16 @@
       (or-then lst (success lst)
                (and-then-func line? linelist?))))
 
-(define (program? filename)
-  (let ([result ((and-then-func linelist? (token=? "$$")) (tokenize-file filename))])
+(define (program? lst)
+  (let ([result ((and-then-func linelist? (token=? "$$")) lst)])
     (cond
       [(success? result) "Successful"]
       [else (from-failure #f result)])))
 
+(define (parse filename)
+  (program? (tokenize-file filename)))
+
+; Unit tests
 (module+ test
   (require rackunit)
 
@@ -145,7 +159,6 @@
   (check-equal? (tokenize test-str) '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" ";" "goto" "asgf" "$$"))
 
   ; line
-  ; it's above line?'s paygrade to know if the ";" could be part of a different line or program end
   (check-equal? (line? '("asdf" ":" "dog" "=" "(" "-" "12" "+" "(" "12" "*" "11" ")" ")" "$$")) (success '("$$")))
   (check-true (failure? (line? '("$$"))))
   
@@ -165,7 +178,7 @@
   (check-equal? (boolean? '("abc" "+" "1" ">" "4")) (success '()))
   (check-true (failure? (boolean? '("abc" "+" "1"))))
 
-  ; token=
+  ; token=?
   (check-equal? ((token=? ":") '(":" "+" "1")) (success '("+" "1")))
   (check-true (failure? ((token=? ";") '(":" "+" "1"))))
 
