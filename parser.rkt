@@ -1,27 +1,16 @@
 #lang racket
 (require data/either) ; requires functional-lib package
 
-; TODO: Improve code tracing ability with line numbers
-
-; take one line of input as string and break into tokens
-(define (tokenize s)
-  (flatten (map (λ (str) (regexp-split (pregexp "(?<!^)(\\b|(?=[\\(\\)])|(?<=[\\(\\)]))(?!$)") str))
-                (string-split s)))) ; split on spaces first, then split each on symbols, then flatten
-
-; Take filename, read lines and tokenize, then join all lines together
-(define (tokenize-file filename)
-  (append* (map tokenize (file->lines filename))))
+; Helper Functions
 
 ; Applies funcs in-order to lst until one succeeds or all fail
 (define (or-then lst on-fail . funcs) ; take list, return value on fail, and any number of functions
-  (define (iter f)
-    (if (empty? f)
-        on-fail
-        (let ([result ((first f) lst)])
-          (if (success? result)
-              result
-              (apply or-then lst on-fail (rest f))))))
-  (iter funcs))
+  (if (empty? funcs)
+      on-fail
+      (let ([result ((first funcs) lst)])
+        (if (success? result)
+            result
+            (apply or-then lst on-fail (rest funcs))))))
 
 ; Applies funcs in-order to lst until all succeed or one fails
 (define (and-then lst . funcs)
@@ -32,7 +21,7 @@
             result
             (apply and-then (from-success #f result) (rest funcs))))))
 
-; Return and-then function for list of functions (useful to combine with or-then)
+; Return and-then function for list of functions (used to combine with or-then)
 (define (and-then-func . funcs)
   (lambda (lst)
     (apply and-then lst funcs)))
@@ -41,76 +30,68 @@
 (define (pass-next lst)
   (success (rest lst)))
 
-; Used for when specific token is unrecognized
-(define (fail-token type lst)
-  (failure (format "Unexpected ~a: '~a'" type (if (empty? lst) '() (first lst)))))
-
-; Used for when longer statement is unrecognized
-(define (fail-statement lst)
-  (failure (format "Unexpected phrase: '~a'"
-                   (cond [(empty? lst) '()]
-                         [(= (length lst) 1) (first lst)]
-                         [else (string-join (take lst 2))]))))
-
 ; Terminals
 
 ; Return function to test if the next token matches a certain string
 (define (token=? s) ; call like ((token=? ";") lst)
   (lambda (lst)
     (cond
-      [(empty? lst) (fail-token "token" lst)]
+      [(empty? lst) (failure lst)]
       [(equal? (first lst) s) (pass-next lst)]
-      [else (fail-token "token" lst)])))
+      [else (failure lst)])))
 
 (define (digits? lst)
   (cond
-    [(empty? lst) (fail-token "digit" lst)]
+    [(empty? lst) (failure lst)]
     [(regexp-match-exact? #rx"[0-9]+" (first lst)) (pass-next lst)]
-    [else (fail-token "digit" lst)]))
+    [else (failure lst)]))
 
 (define (numsign? lst)
   (cond
     [(empty? lst) (success lst)]
     [(regexp-match-exact? #rx"[+|-]" (first lst)) (pass-next lst)]
-    [else (success lst)])) ; if it can be epsilon and sees a character that doesn't match, still returns success, but doesn't remove element
+    [else (success lst)])) ; numsign can be epsilon
 
 (define (id? lst)
   (define reserved '("if" "while" "read" "write" "goto" "gosub" "return" "break" "end"))
   (cond
-    [(empty? lst) (fail-token "id" lst)]
+    [(empty? lst) (failure lst)]
     [(and (not (member (first lst) reserved)) ; id cannot be reserved keyword
           (regexp-match-exact? #rx"[a-zA-Z][a-zA-Z0-9]*" (first lst))) (pass-next lst)]
-    [else (fail-token "id" lst)]))
+    [else (failure lst)]))
   
 (define (bool-op? lst)
   (cond
-    [(empty? lst) (fail-token "boolean operator" lst)]
+    [(empty? lst) (failure lst)]
     [(member (first lst) '("<" ">" "<=" ">=" "=" "<>")) (pass-next lst)]
-    [else (fail-token "boolean operator" lst)]))
+    [else (failure lst)]))
 
 ; Non-terminals
 
 (define (num? lst)
-  (and-then lst numsign? digits?)) ; numsign? will always return a success
+  (and-then lst numsign? digits?))
 
 (define (etail? lst)
-  (if (and (cons? lst) (member (first lst) '("+" "-" "*" "/")))
-      (expr? (rest lst)) ; etail must start with arithmetic operator and end with expr
-      (success lst))) ; it can be empty, so we assume a success if it isn't there. Just don't remove the next token
+  (or-then lst (success lst) ; etail can be epsilon
+           (and-then-func (token=? "+") expr?)
+           (and-then-func (token=? "-") expr?)
+           (and-then-func (token=? "*") expr?)
+           (and-then-func (token=? "/") expr?)))
 
 (define (expr? lst)
-  (or-then lst (fail-statement lst)
+  (or-then lst (failure lst)
            (and-then-func id? etail?)
            (and-then-func num? etail?)
            (and-then-func (token=? "(") expr? (token=? ")"))))
 
 (define (boolean? lst)
-  (if (and (cons? lst) (member (first lst) '("true" "false")))
-      (pass-next lst) ; if simple boolean true/false, succeed for next token
-      (and-then lst expr? bool-op? expr?))) ; otherwise, evaluate on (expr? (bool-op? (expr? lst)))
+  (or-then lst (failure lst)
+           (token=? "true")
+           (token=? "false")
+           (and-then-func expr? bool-op? expr?)))
 
 (define (stmt? lst)
-  (or-then lst (fail-statement lst)
+  (or-then lst (failure lst)
            (and-then-func id? (token=? "=") expr?)
            (and-then-func (token=? "if") (token=? "(") boolean? (token=? ")") stmt?)
            (and-then-func (token=? "while") (token=? "(") boolean?
@@ -124,33 +105,62 @@
            (token=? "end")))
 
 (define (linetail? lst)
-  (if (empty? lst)
-      (success lst)
-      (or-then lst (success lst) ; linetail can be empty
-               (and-then-func (token=? ";") stmt? linetail?))))
+  (or-then lst (success lst) ; linetail can be epsilon
+           (and-then-func (token=? ";") stmt? linetail?)))
 
 (define (label? lst)
-  (or-then lst (success lst) ; label can be empty, so default to success
+  (or-then lst (success lst) ; label can be epsilon, so default to success
            (and-then-func id? (token=? ":"))))
 
 (define (line? lst)
-  (and-then lst label? stmt? linetail?)) ; return whatever failure or success returns from these funcs
+  (and-then lst label? stmt? linetail?))
 
-(define (linelist? lst) ; takes list of lists
-  (if (empty? lst) (success lst)
-      (or-then lst (success lst)
-               (and-then-func line? linelist?))))
+(define (linelist? lst)
+  (or-then lst (success lst) ; linelist can be epsilon
+           (and-then-func line? linelist?)))
 
 (define (program? lst)
-  (let ([result ((and-then-func linelist? (token=? "$$")) lst)])
-    (cond
-      [(success? result) "Successful"]
-      [else (from-failure #f result)])))
+  (and-then lst linelist? (token=? "$$")))
 
+; Tokenization
+
+; take one line of input as string and break into tokens
+(define (tokenize s)
+  (flatten (map (λ (str) (regexp-split (pregexp "(?<!^)(\\b|(?=[\\(\\)])|(?<=[\\(\\)]))(?!$)") str))
+                (string-split s)))) ; split on spaces first, then split each on symbols, then flatten
+
+; Take filename, read lines and tokenize, return list of lines
+(define (tokenize-file-lines filename)
+  (map tokenize (file->lines filename)))
+
+; Errors
+
+; To simplify line matching, find line based on list of lines and [flat] list of remaining tokens
+(define (match-line orig-lst flat-lst)
+  (define (loop flat-len lst)
+    (let ([next-line (length (first lst))])
+      (if (<= flat-len next-line)
+          (length lst)
+          (loop (- flat-len next-line) (rest lst)))))
+  (loop (length flat-lst) (reverse orig-lst)))
+
+; Create syntax errors from original tokenized lines and the remaining tokens at error time
+(define (syntax-error all-lines remaining-tokens)
+  (format "Line ~a: Syntax error: Unexpected token: '~a'"
+          (match-line all-lines remaining-tokens) ; line number
+          (first remaining-tokens))) ; failed token
+
+; Driver Functions
+
+; Given file name, parses according to grammar
 (define (parse filename)
-  (program? (tokenize-file filename)))
+  (let* ([lines (tokenize-file-lines filename)]
+         [result (program? (append* lines))])
+    (cond [(success? result) "Accepted"]
+          [else (syntax-error lines (from-failure #f result))])))
 
-; Unit tests
+; Unit Tests
+
 (module+ test
   (require rackunit)
 
