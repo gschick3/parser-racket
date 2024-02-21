@@ -1,5 +1,7 @@
 # racket-parser
 
+A partial parser written in Racket for a simple programming language. See my [version in C](https://github.com/gschick3/parser-c) as well.
+
 ## Language Grammar
 
 This language is a simplified version of ALGOL
