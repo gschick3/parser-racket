@@ -53,7 +53,7 @@
     [else (success lst)])) ; numsign can be epsilon
 
 (define (id? lst)
-  (define reserved '("if" "while" "read" "write" "goto" "gosub" "return" "break" "end"))
+  (define reserved '("if" "while" "endwhile" "read" "write" "goto" "gosub" "return" "break" "end"))
   (cond
     [(empty? lst) (failure lst)]
     [(and (not (member (first lst) reserved)) ; id cannot be reserved keyword
