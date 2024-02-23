@@ -1,6 +1,6 @@
 # racket-parser
 
-A partial parser written in Racket for a simple programming language. See my [version in C](https://github.com/gschick3/parser-c) as well.
+A partial parser written in Racket for a simple programming language. See my bigger and better [version in C](https://github.com/gschick3/parser-c) as well (it actually creates a parse tree).
 
 ## Language Grammar
 
