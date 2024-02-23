@@ -4,8 +4,6 @@ A partial parser written in Racket for a simple programming language. See my big
 
 ## Language Grammar
 
-This language is a simplified version of ALGOL
-
 ```
 program -> linelist $$ 
 linelist -> line linelist | epsilon 
